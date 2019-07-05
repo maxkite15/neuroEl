@@ -1,7 +1,8 @@
 // Import the express lirbary
-const express = require('express')
+const express = require('express');
 const bodyParser = require('body-parser');
 const {ipcMain} = require('electron');
+const socketIo = require("socket.io");
 
 let appConfig = require('./neuroConfig');
 
@@ -16,8 +17,10 @@ const app = express();
 app.use(express.static(__dirname + '/src/public'));
 app.use(bodyParser.urlencoded({extend:true}));
 
+const redirect_uri = 'http://localhost:8180/token/';
 let first_enter = true;
 let curr_access_token = '';
+let curr_expires_in = 0;
 let client_id = '';
 let client_secret = '';
 let state = '';
@@ -31,17 +34,20 @@ ipcMain.on('get-app-config', (event, arg) => {
 });
 
 app.post('/token', function (req, res) {
-    if(first_enter) {
-        //res.redirect(`/neuro.html?access_token=${req.body.access_token}`);
-        res.redirect('/neuro.html');
-        first_enter = false;
-    }
+    res.redirect('/neuro.html');
+
     curr_access_token = req.body.access_token;
+    curr_expires_in = req.body.expires_in;
+
+    if(tokenUpdateSocket) {
+        tokenUpdateSocket.emit("NewToken", {
+            token: curr_access_token,
+            expires_in: curr_expires_in
+        });
+    }
 });
 
 app.post('/get_token', function (req, res) {
-    //здесь вообще надо в качестве redirect_uri указать что-то типа http://localhost:8180/token
-    let redirect_uri = req.body.redirect_uri ? req.body.redirect_uri : 'http://localhost:8180/token/';
     client_id = req.body.client_id ? req.body.client_id : client_id;
     client_secret = req.body.client_secret ? req.body.client_secret : client_secret;
     state = req.body.state ? req.body.state : state;
@@ -60,8 +66,6 @@ app.get('/chart_data', function(req, res) {
     let group = req.query.Group;
     let qclass = req.query.Class;
     let kind = req.query.Kind;
-    //start = '2019-06-05T10:00:00';
-    //stop = '2019-06-05T15:00:00';
     let url = `https://cdb.neurop.org/api/secured/eventdata/find?Start=${start}&Stop=${stop}&Group=${group}&Class=${qclass}&Kind=${kind}${userIdsCond}`;
     console.log('URL: ', url);
     axios({
@@ -90,4 +94,21 @@ app.get('/chart_data', function(req, res) {
 // Start the server on port 8180
 let port = process.env.PORT || 8180;
 console.log('PORT: ', port);
-app.listen(port);
+const server = app.listen(port);
+
+const io = socketIo(server);
+
+let tokenUpdateSocket = null;
+
+io.on("connection", socket => {
+    console.log("New client connected");
+    tokenUpdateSocket = socket;
+    tokenUpdateSocket.emit("NewToken", {
+        token: curr_access_token,
+        expires_in: curr_expires_in,
+        auth_url: `http://cdb.neurop.org:8080/npe/connect/authorize?client_secret=${client_secret}&client_id=${client_id}&response_type=token&response_mode=form_post&redirect_uri=${redirect_uri}&scope=api&state=${state}`
+    });
+    socket.on("disconnect", () => {
+        console.log("Client disconnected");
+    });
+});

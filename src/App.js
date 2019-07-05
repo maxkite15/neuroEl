@@ -1,5 +1,6 @@
 import React, {Component} from 'react';
 import { ipcRenderer } from 'electron';
+import socketIOClient from 'socket.io-client';
 import {NotificationContainer, NotificationManager} from 'react-notifications';
 /*import './css/App.css';
 import './css/bootstrap.min.css';*/
@@ -8,6 +9,8 @@ import {Bar} from "react-chartjs-2";
 import stress from './testData/Stress.json';
 import load from './testData/CognitiveLoad.json';
 import lucidity from './testData/Lucidity.json';
+
+let socket = null;
 
 export default class App extends Component {
     constructor(props){
@@ -65,6 +68,7 @@ export default class App extends Component {
     }
 
     componentDidMount() {
+        console.log('DID MOUNT');
         let self = this;
         let currDateTime = new Date();
         let currHour = currDateTime.getHours();
@@ -85,6 +89,18 @@ export default class App extends Component {
                 this.prevDaysCount--;
             }
         }
+
+        socket = socketIOClient.apply(this, ['http://localhost:8180']);
+        socket.on('NewToken', result=>{
+            console.log('NEW TOKEN DATA: ', result);
+            this.tokenVal = result.token;
+            let expires_in = result.expires_in*1000;
+            setTimeout(()=>{
+                let link = document.getElementById('updateTokenLink');
+                link.href = result.auth_url;
+                link.click();
+            }, expires_in);
+        });
     }
 
     updateData(currData, timeCond, stateKey){
@@ -95,9 +111,10 @@ export default class App extends Component {
                 this.getChartData(`/chart_data?${timeCond}&Group=feedback&Class=trigger-negative&Kind=CognitiveLoad_Flag`),
                 this.getChartData(`/chart_data?${timeCond}&Group=bio&Class=mental&Kind=Lucidity_Avg`)
             ]).then(result=>{
-                let stressData = result.data[0];//.length ? result.data[0] : stress;//убрать когда будут приходить непустые данные
-                let cognitiveLoadData = result.data[1];//.length ? result.data[1] : load;
-                let lucidityData = result.data[2];//.length ? result.data[2] : lucidity;
+                console.log('RESULT: ', result);
+                let stressData = result[0].data;
+                let cognitiveLoadData = result[1].data;
+                let lucidityData = result[2].data;
                 self.formatData(stressData, currData, 'stress', stateKey==='prevDaysChartsData');
                 self.formatData(cognitiveLoadData, currData, 'cognitiveLoad', stateKey==='prevDaysChartsData');
                 self.formatData(lucidityData, currData, 'lucidity', stateKey==='prevDaysChartsData');
@@ -106,17 +123,6 @@ export default class App extends Component {
                 });
                 resolve('Data updated');
             }, err=>{
-                //!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!________УБРАТЬ___________!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
-                /*let stressData =  stress;//убрать когда будут приходить непустые данные
-                let cognitiveLoadData = load;
-                let lucidityData = lucidity;
-                self.formatData(stressData, currData, 'stress', stateKey==='prevDaysChartsData');
-                self.formatData(cognitiveLoadData, currData, 'cognitiveLoad', stateKey==='prevDaysChartsData');
-                self.formatData(lucidityData, currData, 'lucidity', stateKey==='prevDaysChartsData');
-                self.setState({
-                    [stateKey]: currData
-                });*/
-                //!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
                 NotificationManager.error(err.message, 'Error', 5000);
                 reject(err);
             });
@@ -158,27 +164,21 @@ export default class App extends Component {
             timeout = (currHour < this.lastHour && this.lastMinutes===0 ? 60 - currMinutes : (currHour === this.lastHour && this.lastMinutes>currMinutes ? this.lastMinutes - currMinutes: 20))*60*1000;
         }
         setTimeout(()=>{
-            fetch('/get_token',{
-                method: 'POST'
-            }).then(response=>{
-                let newChartsData = self.state.chartsData;
-                let key = this.getTimeKey(self.lastHour, self.lastMinutes);
-                newChartsData[key] = {};
-                let timeCond = `Start=
-                ${self.getDateTimeStr(self.lastMinutes===0 ? self.lastHour-1 : self.lastHour, self.lastMinutes===0 ? 40 : self.lastMinutes - 20)}
-                &Stop=
-                ${self.getDateTimeStr(self.lastHour, self.lastMinutes)}`;
-                self.updateData(newChartsData, timeCond, 'chartsData')
-                    .then(result=>{
-                        console.log(result);
-                        onTimeout();
-                    }, err=>{
-                        console.log(err);
-                        onTimeout();
-                    });
-            }).catch(err=> {
-                console.log('GET TOKEN ERROR: ', err);
-            });
+            let newChartsData = self.state.chartsData;
+            let key = this.getTimeKey(self.lastHour, self.lastMinutes);
+            newChartsData[key] = {};
+            let timeCond = `Start=
+            ${self.getDateTimeStr(self.lastMinutes===0 ? self.lastHour-1 : self.lastHour, self.lastMinutes===0 ? 40 : self.lastMinutes - 20)}
+            &Stop=
+            ${self.getDateTimeStr(self.lastHour, self.lastMinutes)}`;
+            self.updateData(newChartsData, timeCond, 'chartsData')
+                .then(result=>{
+                    console.log(result);
+                    onTimeout();
+                }, err=>{
+                    console.log(err);
+                    onTimeout();
+                });
         }, timeout);
 
         function onTimeout() {
@@ -196,16 +196,7 @@ export default class App extends Component {
 
     getChartData(url){
         return new Promise((resolve, reject)=>{
-            fetch(url
-            /*    , {
-                method: 'GET',
-                headers: {
-                    'Authorization': `Bearer ${this.tokenVal}`
-                },
-                mode: 'cors',
-                cache: 'no-cache'
-            }*/
-            )
+            fetch(url)
                 .then(response=>{
                     if(response.status!==200) throw new Error(response.statusText);
                     console.log(response);
@@ -253,6 +244,16 @@ export default class App extends Component {
         let minutes = currDate.getMinutes();
         let seconds = currDate.getSeconds();
         return (minutes<10 ? '0'+minutes : minutes) + ':' + (seconds<10 ? '0'+seconds : seconds);
+    }
+
+    fakeData(){
+        let values = [0,1,-2];
+        let randomVal = values[Math.floor(Math.random() * values.length)];
+        let currDate = new Date();
+        let td = this.getDateKey(currDate.getFullYear(), currDate.getMonth(), currDate.getDate())+'T'+this.getTimeKey(currDate.getHours(), currDate.getMinutes());
+        return [{
+            "data": `{\"s\": [{\"c\": 0, \"d\": -0.5413542847002053, \"t\": 2002.2506371, \"v\": ${randomVal}}], \"t\": \"${td}\"}`
+        }]
     }
 
     formatData(data, chartsData, type, isPrevDay){
@@ -368,6 +369,7 @@ export default class App extends Component {
 
         return (
             <div className="App">
+                <a id="updateTokenLink" target="_self" style={{display: 'none'}}>Token</a>
                 <div className="form-check form-check-inline">
                     <input className="form-check-input" type="radio" name="inlineRadioOptions" id="inlineRadio1"
                            value="currDay" checked={selectedType==='currDay'} onChange={(e)=>this.setState({selectedType: 'currDay'})}/>
