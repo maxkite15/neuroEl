@@ -19,6 +19,7 @@ export default class App extends Component {
         this.startTimeHour = app_config && (app_config.dayStartHour || app_config.dayStartHour===0) ? app_config.dayStartHour : 9;
         this.endTimeHour = app_config && (app_config.dayEndHour || app_config.dayEndHour===0) ? app_config.dayEndHour : 18;
         this.prevDaysCount = app_config && app_config.prevDaysCount ? app_config.prevDaysCount : 0;
+        this.isPerfomanceStacked = app_config && app_config.perfomanceStacked ? true : false;
         this.tokenVal = ipcRenderer.sendSync('get-curr-access-token');
 
         console.log('Access token: ', this.tokenVal);
@@ -47,7 +48,8 @@ export default class App extends Component {
             stress: [255, 7, 7],
             cognitiveLoad: [140,140,140],
             lucidity: [0, 204, 255],
-            performance: [1, 187, 0]
+            performance: [1, 187, 0],
+            in_range: [71, 0, 212]
         };
 
         ipcRenderer.on('new-access-token', (event, arg)=>{
@@ -277,6 +279,12 @@ export default class App extends Component {
                         if (!chartsData[key]['performance']) chartsData[key]['performance'] = {count: 0};
                         chartsData[key]['performance'].count++;
                     }
+                }else if(iObj.s[i].v === 1){
+                    //for stacked chart
+                    if(chartsData[key]) {
+                        if (!chartsData[key]['in_range']) chartsData[key]['in_range'] = {count: 0};
+                        chartsData[key]['in_range'].count++;
+                    }
                 }
             }
         });
@@ -291,6 +299,8 @@ export default class App extends Component {
         let cognitiveLoadChartData = [];
         let lucidityChartData = [];
         let performanceChartData = [];
+        //for stacked chart
+        let inRangeChartData = [];
         if(selectedType === 'currDay') {
             //curr day data format
             for (let key in chartsData) {
@@ -313,7 +323,12 @@ export default class App extends Component {
                 if (chartsData[key].performance) {
                     performanceChartData.push(chartsData[key].performance.count);
                 } else {
-                    cognitiveLoadChartData.push(0);
+                    performanceChartData.push(0);
+                }
+                if (chartsData[key].in_range) {
+                    inRangeChartData.push(chartsData[key].in_range.count);
+                } else {
+                    inRangeChartData.push(0);
                 }
 
             }
@@ -339,7 +354,12 @@ export default class App extends Component {
                 if (prevDaysChartsData[key] && prevDaysChartsData[key].performance) {
                     performanceChartData.push(prevDaysChartsData[key].performance.count);
                 } else {
-                    cognitiveLoadChartData.push(0);
+                    performanceChartData.push(0);
+                }
+                if (prevDaysChartsData[key] && prevDaysChartsData[key].in_range) {
+                    inRangeChartData.push(prevDaysChartsData[key].in_range.count);
+                } else {
+                    inRangeChartData.push(0);
                 }
             }
         }
@@ -364,8 +384,13 @@ export default class App extends Component {
                             <span className="label" style={{color: `rgba(${this.background.lucidity.join(',')}, 1)`}}>Сосредоточенность</span>
                         </div>
                         <div className="chart-body">
-                            <ChartBar id="lucidityBar" data={lucidityChartData} labels={chartsLabels}
-                                  label='Сосредоточенность' color={this.background.lucidity}
+                            <ChartBar id="lucidityBar"
+                                  content={[{
+                                      data: lucidityChartData,
+                                      label: 'Сосредоточенность',
+                                      color: this.background.lucidity
+                                  }]}
+                                  labels={chartsLabels}
                                   xLabel={xLabel} yLabel={yLabel}/>
                         </div>
                     </div>
@@ -375,8 +400,14 @@ export default class App extends Component {
                             <span className="label" style={{color: `rgba(${this.background.stress.join(',')}, 1)`}}>Стресс</span>
                         </div>
                         <div className="chart-body">
-                            <ChartBar id="stressBar" data={stressChartData} labels={chartsLabels} label='Стресс'
-                                      color={this.background.stress} xLabel={xLabel} yLabel={yLabel}/>
+                            <ChartBar id="stressBar"
+                                  content={[{
+                                      data: stressChartData,
+                                      label: 'Стресс',
+                                      color: this.background.stress
+                                  }]}
+                                  labels={chartsLabels}
+                                  xLabel={xLabel} yLabel={yLabel}/>
                         </div>
                     </div>
 
@@ -386,8 +417,14 @@ export default class App extends Component {
                             <span className="label" style={{color: `rgba(${this.background.cognitiveLoad.join(',')}, 1)`}}>Когнитивная нагрузка</span>
                         </div>
                         <div className="chart-body">
-                            <ChartBar id="cognitiveLoadBar" data={cognitiveLoadChartData} labels={chartsLabels}
-                                  label='Когнитивная нагрузка' color={this.background.cognitiveLoad} xLabel={xLabel} yLabel={yLabel}/>
+                            <ChartBar id="cognitiveLoadBar"
+                                  content={[{
+                                      data: cognitiveLoadChartData,
+                                      label: 'Когнитивная нагрузка',
+                                      color: this.background.cognitiveLoad
+                                  }]}
+                                  labels={chartsLabels}
+                                  xLabel={xLabel} yLabel={yLabel}/>
                         </div>
                     </div>
 
@@ -396,8 +433,25 @@ export default class App extends Component {
                             <span className="label" style={{color: `rgba(${this.background.performance.join(',')}, 1)`}}>Работоспособность</span>
                         </div>
                         <div className="chart-body">
-                            <ChartBar id="courageBar" data={performanceChartData} labels={chartsLabels}
-                                  label='Работоспособность' color={this.background.performance} xLabel={xLabel} yLabel={yLabel}/>
+                            <ChartBar id="courageBar"
+                                content={this.isPerfomanceStacked ? [{
+                                        data: performanceChartData,
+                                        label: 'Вне диапазона/Нет сигнала',
+                                        color: this.background.performance
+                                    },{
+                                        data: inRangeChartData,
+                                        label: 'В диапозоне',
+                                        color: this.background.in_range
+                                    }]
+                                    :[{
+                                        data: performanceChartData,
+                                        label: 'Вне диапазона/Нет сигнала',
+                                        color: this.background.performance
+                                    }]
+                                }
+                                labels={chartsLabels}
+                                showLegend={this.isPerfomanceStacked}
+                                xLabel={xLabel} yLabel="Количество событий"/>
                         </div>
                     </div>
                 </div>
