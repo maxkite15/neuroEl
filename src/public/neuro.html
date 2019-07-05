@@ -1,0 +1,46 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <link type="text/css" rel="stylesheet" href="css/App.css">
+    <link type="text/css" rel="stylesheet" href="css/index.css">
+    <link type="text/css" rel="stylesheet" href="css/bootstrap.min.css">
+    <link type="text/css" rel="stylesheet" href="css/notifications.css">
+    <title>Neuro</title>
+    <link rel="icon" href="img/favicon.ico">
+</head>
+<body>
+<div id="root">
+</div>
+<script>
+    function findGetParameter(parameterName) {
+        var result = null,
+            tmp = [];
+        location.search
+            .substr(1)
+            .split("&")
+            .forEach(function (item) {
+                tmp = item.split("=");
+                if (tmp[0] === parameterName) result = decodeURIComponent(tmp[1]);
+            });
+        return result;
+    }
+    (function() {
+        if(window.global) {
+            window.global.access_token = findGetParameter('access_token');
+        }else{
+            window.global = {
+                access_token: findGetParameter('access_token')
+            }
+        }
+        const script = document.createElement('script');
+        if (!window.process || window.process.env.NODE_ENV === 'development'){
+            script.src = 'http://localhost:9000/dist/bundle.js';
+        }else{
+            script.src = './dist/bundle.js';
+        }
+        document.write(script.outerHTML);
+    }());
+</script>
+</body>
+</html>
