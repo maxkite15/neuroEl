@@ -1,0 +1,4 @@
+"dayStartHour" - start point of x axes for chart of current date(integer from 0 to 24)
+"dayEndHour" - end point of x axes for chart of current date(integer from 0 to 24)
+"prevDaysCount" - the number of days preceding the current one for the chart of previous days
+"userIds" - user IDs for uploading data used in charts
