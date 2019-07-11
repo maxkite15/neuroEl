@@ -1,7 +1,6 @@
 // Import the express lirbary
 const express = require('express');
 const bodyParser = require('body-parser');
-const {ipcMain} = require('electron');
 const socketIo = require("socket.io");
 
 let appConfig = require('./neuroConfig');
@@ -15,23 +14,16 @@ const axios = require('axios');
 // inside the public directory
 const app = express();
 app.use(express.static(__dirname + '/src/public'));
-app.use(bodyParser.urlencoded({extend:true}));
+app.use(bodyParser.urlencoded({
+    extended: true
+}));
+app.use(bodyParser.json());
 
 const redirect_uri = 'http://localhost:8180/token/';
 let first_enter = true;
 let curr_access_token = '';
 let curr_expires_in = 0;
-let client_id = '';
-let client_secret = '';
-let state = '';
-
-ipcMain.on('get-curr-access-token', (event, arg) => {
-    event.returnValue = curr_access_token;
-});
-
-ipcMain.on('get-app-config', (event, arg) => {
-    event.returnValue = appConfig;
-});
+let userIds = [];
 
 app.post('/token', function (req, res) {
     res.redirect('/neuro.html');
@@ -39,28 +31,40 @@ app.post('/token', function (req, res) {
     curr_access_token = req.body.access_token;
     curr_expires_in = req.body.expires_in;
 
-    if(tokenUpdateSocket) {
-        tokenUpdateSocket.emit("NewToken", {
+    if(clientSocket) {
+        clientSocket.emit("NewToken", {
             token: curr_access_token,
             expires_in: curr_expires_in
         });
     }
 });
 
-app.post('/get_token', function (req, res) {
-    client_id = req.body.client_id ? req.body.client_id : client_id;
-    client_secret = req.body.client_secret ? req.body.client_secret : client_secret;
-    state = req.body.state ? req.body.state : state;
-    let url = `http://cdb.neurop.org:8080/npe/connect/authorize?client_secret=${client_secret}&client_id=${client_id}&response_type=token&response_mode=form_post&redirect_uri=${redirect_uri}&scope=api&state=${state}`;
+app.get('/',function (req, res) {
+    let url = `http://cdb.neurop.org:8080/npe/connect/authorize?client_secret=${appConfig.client_secret}&client_id=${appConfig.client_id}&response_type=token&response_mode=form_post&redirect_uri=${redirect_uri}&scope=api&state=${appConfig.state}`;
     console.log(url);
-    if(!client_id || !client_secret || !state){
-        res.status(500).send('All fields must be filled!');
+    if(!appConfig.client_id || !appConfig.client_secret || !appConfig.state){
+        res.status(500).send('Some of auth params from configuration is empty!');
     }
     res.status(301).redirect(url);
 });
 
+
+app.post('/get_token', function (req, res) {
+    let url = `http://cdb.neurop.org:8080/npe/connect/authorize?client_secret=${appConfig.client_secret}&client_id=${appConfig.client_id}&response_type=token&response_mode=form_post&redirect_uri=${redirect_uri}&scope=api&state=${appConfig.state}`;
+    console.log(url);
+    if(!appConfig.client_id || !appConfig.client_secret || !appConfig.state){
+        res.status(500).send('Some of auth params from configuration is empty!');
+    }
+    res.status(301).redirect(url);
+});
+
+app.post('/update_user_ids', function (req, res) {
+    userIds = req.body.userIds;
+    res.send('Success update!');
+});
+
 app.get('/chart_data', function(req, res) {
-    let userIdsCond = appConfig.userIds.length ? `&UserIds=${appConfig.userIds.join('&UserIds=')}` : '';
+    let userIdsCond = userIds && userIds.length ? `&UserIds=${userIds.join('&UserIds=')}` : '';
     let start = req.query.Start;
     let stop = req.query.Stop;
     let group = req.query.Group;
@@ -77,7 +81,6 @@ app.get('/chart_data', function(req, res) {
             'Authorization': 'Bearer '+curr_access_token
         }
     }).then((response) => {
-        console.log('Response Data: ', response.data);
         res.send({
             data: response.data
         });
@@ -98,16 +101,20 @@ const server = app.listen(port);
 
 const io = socketIo(server);
 
-let tokenUpdateSocket = null;
+let clientSocket = null;
 
 io.on("connection", socket => {
     console.log("New client connected");
-    tokenUpdateSocket = socket;
-    tokenUpdateSocket.emit("NewToken", {
+    clientSocket = socket;
+    clientSocket.emit("userIds", {
+        userIds: userIds
+    });
+    clientSocket.emit("NewToken", {
         token: curr_access_token,
         expires_in: curr_expires_in,
-        auth_url: `http://cdb.neurop.org:8080/npe/connect/authorize?client_secret=${client_secret}&client_id=${client_id}&response_type=token&response_mode=form_post&redirect_uri=${redirect_uri}&scope=api&state=${state}`
+        auth_url: `http://cdb.neurop.org:8080/npe/connect/authorize?client_secret=${appConfig.client_secret}&client_id=${appConfig.client_id}&response_type=token&response_mode=form_post&redirect_uri=${redirect_uri}&scope=api&state=${appConfig.state}`
     });
+    clientSocket.emit("appConfig", appConfig);
     socket.on("disconnect", () => {
         console.log("Client disconnected");
     });

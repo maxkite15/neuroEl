@@ -1,7 +1,9 @@
 {
+  "client_id": "70",
+  "client_secret": "secretsecret",
+  "state": "1",
   "dayStartHour": 9,
   "dayEndHour": 18,
   "prevDaysCount": 2,
-  "userIds": [274, 275, 276, 277, 278, 279, 280, 281, 282, 283],
   "perfomanceStacked":  true
 }

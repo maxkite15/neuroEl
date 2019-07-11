@@ -48,7 +48,7 @@ html, body {
 }
 
 .Charts {
-  height: calc(100% - 15px);
+  height: calc(100% - 21px);
 }
 
 .chart-block {
@@ -67,6 +67,7 @@ html, body {
 }
 
 .chart-body {
+  padding-top: 20px;
   height: calc(100% - 25px);
 }
 
