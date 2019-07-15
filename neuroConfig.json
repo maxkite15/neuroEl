@@ -4,6 +4,7 @@
   "state": "1",
   "dayStartHour": 9,
   "dayEndHour": 18,
-  "prevDaysCount": 2,
-  "perfomanceStacked":  true
+  "prevDaysCount": 5,
+  "perfomanceStacked":  true,
+  "reportInterval": 10
 }

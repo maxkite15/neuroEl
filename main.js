@@ -1,6 +1,6 @@
 const electron = require('electron');
 var platform = require('os').platform();
-require('./index.js');
+var appServer = require('./index.js');
 // Module to control application life.
 const app = electron.app;
 const Menu = electron.Menu;
@@ -66,6 +66,7 @@ function createWindow () {
 app.on('ready', function(){
   createWindow();
   mainWindow.maximize();
+    appServer.initAppCookies(electron.session);
 });
 
 // Quit when all windows are closed.

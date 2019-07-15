@@ -22,6 +22,7 @@ export default class App extends Component {
         this.prevDaysCount = null;
         this.isPerfomanceStacked = null;
         this.tokenVal = null;
+        this.reportInterval = null;
 
         this.startDateOfAnalyze = new Date();
 
@@ -37,7 +38,8 @@ export default class App extends Component {
             startDate: new Date(),
             selectedType: 'currDay',
             userIdsSettingsShow: false,
-            userIds: []
+            userIds: [],
+            loadCounter: 0
         };
 
         this.getLabel = this.getLabel.bind(this);
@@ -98,12 +100,12 @@ export default class App extends Component {
             self.endTimeHour = app_config && (app_config.dayEndHour || app_config.dayEndHour===0) ? app_config.dayEndHour : 18;
             self.prevDaysCount = app_config && app_config.prevDaysCount ? app_config.prevDaysCount : 0;
             self.isPerfomanceStacked = app_config && app_config.perfomanceStacked ? true : false;
+            self.reportInterval = app_config && app_config.reportInterval ? app_config.reportInterval : 20; //default 20 minutes
             let currDateTime = new Date();
             let currHour = currDateTime.getHours();
             let currMinute = currDateTime.getMinutes();
-            let timeCond = `Start=${self.getDateTimeStr(self.startTimeHour, 0)}&Stop=${self.getDateTimeStr(currHour, currMinute)}`;
             let startData = self.initData(currHour, currMinute);
-            self.updateData(startData, timeCond, 'chartsData')
+            self.updateData(startData, self.getDateTimeStr(self.startTimeHour, 0), self.getDateTimeStr(currHour, currMinute), 'chartsData')
                 .then(result=>{
                     console.log(result);
                     self.getDataByTimeout(true);
@@ -111,17 +113,22 @@ export default class App extends Component {
                     console.log('DID MOUNT ERROR: ', err);
                 });
             if(self.prevDaysCount){
-                let currDate = new Date();
                 while(self.prevDaysCount>0){
-                    self.getPreviousDayData(currDate);
+                    let prevDate = new Date();
+                    prevDate.setDate(prevDate.getDate()-self.prevDaysCount);
+                    self.getPreviousDayData(prevDate);
                     self.prevDaysCount--;
                 }
             }
         });
     }
 
-    updateData(currData, timeCond, stateKey){
+    updateData(currData, start, stop, stateKey){
+        let timeCond = `Start=${start}&Stop=${stop}`;
         let self = this;
+        this.setState({
+            loadCounter: this.state.loadCounter+1
+        });
         return new Promise((resolve, reject)=>{
             Promise.all([
                 this.getChartData(`/chart_data?${timeCond}&Group=bio&Class=mental&Kind=Stress_Avg`),
@@ -129,7 +136,6 @@ export default class App extends Component {
                 this.getChartData(`/chart_data?${timeCond}&Group=bio&Class=mental&Kind=Lucidity_Avg`),
                 this.getChartData(`/chart_data?${timeCond}&Group=bio&Class=mental&Kind=Enthusiasm_Avg`)
             ]).then(result=>{
-                console.log('RESULT: ', result);
                 let stressData = result[0].data;
                 let cognitiveLoadData = result[1].data;
                 let lucidityData = result[2].data;
@@ -138,30 +144,32 @@ export default class App extends Component {
                 self.formatData(cognitiveLoadData, currData, 'cognitiveLoad', stateKey==='prevDaysChartsData');
                 self.formatData(lucidityData, currData, 'lucidity', stateKey==='prevDaysChartsData');
                 self.formatData(enthusiasmData, currData, 'enthusiasm', stateKey==='prevDaysChartsData');
+                NotificationManager.info(`Загружены данные для отрезка: \n${start}\n${stop}`, 'Info', 5000);
                 self.setState({
-                    [stateKey]: currData
+                    [stateKey]: currData,
+                    loadCounter: self.state.loadCounter-1
                 });
                 resolve('Data updated');
             }, err=>{
                 NotificationManager.error(err.message, 'Error', 5000);
+                self.setState({
+                    loadCounter: self.state.loadCounter-1
+                });
                 reject(err);
             });
         });
     }
 
     getPreviousDayData(currDate){
-        currDate.setDate(currDate.getDate()-1);
+        //currDate.setDate(currDate.getDate()-1);
         if(this.startDateOfAnalyze.getTime() > currDate.getTime()){
             //for update data after userIds change
             this.startDateOfAnalyze = currDate;
         }
         let key = this.getDateKey(currDate.getFullYear(), currDate.getMonth(), currDate.getDate());
-        console.log('KEY=', key);
         let newData = this.state.prevDaysChartsData;
         newData[key] = {};
-        let timeCond = `Start=${this.getDateTimeStr(this.startTimeHour, 0, currDate)}&Stop=${this.getDateTimeStr(this.endTimeHour, 0, currDate)}`;
-        console.log(timeCond);
-        this.updateData(newData, timeCond, 'prevDaysChartsData')
+        this.updateData(newData, this.getDateTimeStr(this.startTimeHour, 0, currDate), this.getDateTimeStr(this.endTimeHour, 0, currDate), 'prevDaysChartsData')
             .then(result=>{
                 console.log('Success prev day data update: ', result);
             }, err=>{
@@ -170,32 +178,31 @@ export default class App extends Component {
     }
 
     increaseTimeKey(){
-        if(this.lastMinutes<40){
-            this.lastMinutes+=20;
+        if(this.lastMinutes<60-this.reportInterval){
+            this.lastMinutes+=this.reportInterval;
         }else{
             this.lastHour++;
-            this.lastMinutes=this.lastMinutes+20-60;
+            this.lastMinutes=this.lastMinutes+this.reportInterval-60;
         }
     }
 
     getDataByTimeout(afterInit){
-        let timeout = 20*60*1000;
+        let timeout = this.reportInterval*60*1000;
         let self = this;
         if(afterInit){
             let currDateTime = new Date();
             let currHour = currDateTime.getHours();
             let currMinutes = currDateTime.getMinutes();
-            timeout = (currHour < this.lastHour && this.lastMinutes===0 ? 60 - currMinutes : (currHour === this.lastHour && this.lastMinutes>currMinutes ? this.lastMinutes - currMinutes: 20))*60*1000;
+            timeout = (currHour < this.lastHour && this.lastMinutes===0 ? 60 - currMinutes : (currHour === this.lastHour && this.lastMinutes>currMinutes ? this.lastMinutes - currMinutes: this.reportInterval))*60*1000;
         }
         setTimeout(()=>{
             let newChartsData = self.state.chartsData;
             let key = this.getTimeKey(self.lastHour, self.lastMinutes);
             newChartsData[key] = {};
-            let timeCond = `Start=
-            ${self.getDateTimeStr(self.lastMinutes===0 ? self.lastHour-1 : self.lastHour, self.lastMinutes===0 ? 40 : self.lastMinutes - 20)}
-            &Stop=
-            ${self.getDateTimeStr(self.lastHour, self.lastMinutes)}`;
-            self.updateData(newChartsData, timeCond, 'chartsData')
+
+            let start = self.getDateTimeStr(self.lastMinutes===0 ? self.lastHour-1 : self.lastHour, self.lastMinutes===0 ? 60-self.reportInterval : self.lastMinutes - self.reportInterval);
+            let stop = self.getDateTimeStr(self.lastHour, self.lastMinutes);
+            self.updateData(newChartsData, start, stop, 'chartsData')
                 .then(result=>{
                     console.log(result);
                     onTimeout();
@@ -211,7 +218,9 @@ export default class App extends Component {
                 self.getDataByTimeout(false);
             }else{
                 setTimeout(()=>{
-                    self.getPreviousDayData(new Date());
+                    let prevDate = new Date();
+                    prevDate.setDate(prevDate.getDate()-1);
+                    self.getPreviousDayData(prevDate);
                     self.getDataByTimeout(false);
                 },(24-self.endTimeHour+self.startTimeHour)*60*60*1000);
             }
@@ -237,16 +246,16 @@ export default class App extends Component {
     initData(currHour, currMinutes){
         let res = {};
         let hour = this.startTimeHour;
-        let minutes = 20;
+        let minutes = this.reportInterval;
         let endHour = this.endTimeHour;
         while((hour < currHour || (hour === currHour&& minutes < currMinutes)) && hour < endHour) {
             let key = this.getTimeKey(hour, minutes);
             res[key] = {};
-            if(minutes+20 >= 60){
+            if(minutes+this.reportInterval >= 60){
                 hour++;
                 minutes=0;
             }else{
-                minutes+=20;
+                minutes+=this.reportInterval;
             }
         }
         this.lastHour = hour;
@@ -283,23 +292,20 @@ export default class App extends Component {
         data.forEach(item=>{
             let iObj = JSON.parse(item.data);
             let recDate = new Date(iObj.t);
-            let recHour = recDate.getMinutes()<40 ? recDate.getHours() : recDate.getHours()+1;
-            let recMinutes = recDate.getMinutes()<20 ? 20 : (recDate.getMinutes()<40 ? 40 : 0);
+            let recHour = recDate.getMinutes()<60-this.reportInterval ? recDate.getHours() : recDate.getHours()+1;
+            let recMinutes = recDate.getMinutes()<this.reportInterval ? this.reportInterval : (recDate.getMinutes()<60-this.reportInterval ? 60-this.reportInterval : 0);
             let key = this.getTimeKey(recHour, recMinutes);
             if(isPrevDay){
                 key = this.getDateKey(recDate.getFullYear(), recDate.getMonth(), recDate.getDate());
             }
             for(let i=0; i<iObj.s.length; i++){
-                //if(iObj.s[i].v !== -2){
+                if(iObj.s[i].v <= 10 && iObj.s[i].v >= -10){
                     if(chartsData[key]) {
                         if (!chartsData[key][type]) chartsData[key][type] = {val: 0, count: 0};
                         chartsData[key][type].val += iObj.s[i].v;
                         chartsData[key][type].count++;
-                        if(type==='stress' && key==='14:20'){
-                            console.log(iObj.s[i].v,'_###-----------------------------------###_',chartsData[key][type].val);
-                        }
                     }
-                //}
+                }
                 //работоспособность
                 /*if(iObj.s[i].v === 0 || iObj.s[i].v === -2){
                     if(chartsData[key]) {
@@ -362,9 +368,8 @@ export default class App extends Component {
                 let currDateTime = new Date();
                 let currHour = currDateTime.getHours();
                 let currMinute = currDateTime.getMinutes();
-                let timeCond = `Start=${self.getDateTimeStr(self.startTimeHour, 0)}&Stop=${self.getDateTimeStr(currHour, currMinute)}`;
                 let startData = self.initData(currHour, currMinute);
-                self.updateData(startData, timeCond, 'chartsData')
+                self.updateData(startData, self.getDateTimeStr(self.startTimeHour, 0), self.getDateTimeStr(currHour, currMinute),  'chartsData')
                     .then(result=>{
                         console.log('New data on user ids update: ', result);
                     }, err=>{
@@ -372,6 +377,7 @@ export default class App extends Component {
                     });
                 if(self.startDateOfAnalyze){
                     while(this.startDateOfAnalyze.getDate()!==currDateTime.getDate() && self.startDateOfAnalyze.getTime()<currDateTime.getTime()){
+                        currDateTime.setDate(currDateTime.getDate()-1);
                         self.getPreviousDayData(currDateTime);
                     }
                 }
@@ -383,7 +389,9 @@ export default class App extends Component {
     }
 
     render(){
-        const {clientId, redirectUri, stateVal, tokenVal, labels, stressData, lucidityData, cognitiveLoadData, courageData, chartsData, prevDaysChartsData, selectedType, userIdsSettingsShow, userIds} = this.state;
+        const {clientId, redirectUri, stateVal, tokenVal, labels, stressData, lucidityData, cognitiveLoadData, courageData,
+            chartsData, prevDaysChartsData, selectedType, userIdsSettingsShow, userIds, loadCounter} = this.state;
+        
         let chartsLabels = [];
         let stressChartData = [];
         let cognitiveLoadChartData = [];
@@ -397,22 +405,22 @@ export default class App extends Component {
             for (let key in chartsData) {
                 chartsLabels.push(key);
                 if (chartsData[key].stress) {
-                    stressChartData.push(Math.round(chartsData[key].stress.val / chartsData[key].stress.count));
+                    stressChartData.push(Math.round(chartsData[key].stress.val / chartsData[key].stress.count * 100) / 100);
                 } else {
                     stressChartData.push(0);
                 }
                 if (chartsData[key].cognitiveLoad) {
-                    cognitiveLoadChartData.push(Math.round(chartsData[key].cognitiveLoad.val / chartsData[key].cognitiveLoad.count));
+                    cognitiveLoadChartData.push(Math.round(chartsData[key].cognitiveLoad.val / chartsData[key].cognitiveLoad.count * 100) / 100);
                 } else {
                     cognitiveLoadChartData.push(0);
                 }
                 if (chartsData[key].lucidity) {
-                    lucidityChartData.push(Math.round(chartsData[key].lucidity.val / chartsData[key].lucidity.count));
+                    lucidityChartData.push(Math.round(chartsData[key].lucidity.val / chartsData[key].lucidity.count * 100) / 100);
                 } else {
                     lucidityChartData.push(0);
                 }
                 if (chartsData[key].enthusiasm) {
-                    enthusiasmChartData.push(Math.round(chartsData[key].enthusiasm.val / chartsData[key].enthusiasm.count));
+                    enthusiasmChartData.push(Math.round(chartsData[key].enthusiasm.val / chartsData[key].enthusiasm.count * 100) / 100);
                 } else {
                     enthusiasmChartData.push(0);
                 }
@@ -434,22 +442,22 @@ export default class App extends Component {
             for (let key in prevDaysChartsData) {
                 chartsLabels.push(key);
                 if (prevDaysChartsData[key] && prevDaysChartsData[key].stress) {
-                    stressChartData.push(Math.round(prevDaysChartsData[key].stress.val / prevDaysChartsData[key].stress.count));
+                    stressChartData.push(Math.round(prevDaysChartsData[key].stress.val / prevDaysChartsData[key].stress.count * 100) / 100);
                 } else {
                     stressChartData.push(0);
                 }
                 if (prevDaysChartsData[key] && prevDaysChartsData[key].cognitiveLoad) {
-                    cognitiveLoadChartData.push(Math.round(prevDaysChartsData[key].cognitiveLoad.val / prevDaysChartsData[key].cognitiveLoad.count));
+                    cognitiveLoadChartData.push(Math.round(prevDaysChartsData[key].cognitiveLoad.val / prevDaysChartsData[key].cognitiveLoad.count * 100) / 100);
                 } else {
                     cognitiveLoadChartData.push(0);
                 }
                 if (prevDaysChartsData[key] && prevDaysChartsData[key].lucidity) {
-                    lucidityChartData.push(Math.round(prevDaysChartsData[key].lucidity.val / prevDaysChartsData[key].lucidity.count));
+                    lucidityChartData.push(Math.round(prevDaysChartsData[key].lucidity.val / prevDaysChartsData[key].lucidity.count * 100) / 100);
                 } else {
                     lucidityChartData.push(0);
                 }
                 if (prevDaysChartsData[key] && prevDaysChartsData[key].enthusiasm) {
-                    enthusiasmChartData.push(Math.round(prevDaysChartsData[key].enthusiasm.val / prevDaysChartsData[key].enthusiasm.count));
+                    enthusiasmChartData.push(Math.round(prevDaysChartsData[key].enthusiasm.val / prevDaysChartsData[key].enthusiasm.count * 100) / 100);
                 } else {
                     enthusiasmChartData.push(0);
                 }
@@ -606,6 +614,25 @@ export default class App extends Component {
                         </Button>
                     </Modal.Footer>
                 </Modal>
+
+                {loadCounter!==0 ?
+                    <div className="lds-spinner">
+                        <div></div>
+                        <div></div>
+                        <div></div>
+                        <div></div>
+                        <div></div>
+                        <div></div>
+                        <div></div>
+                        <div></div>
+                        <div></div>
+                        <div></div>
+                        <div></div>
+                        <div></div>
+                    </div>
+                    :
+                    null
+                }
 
             </div>
         )

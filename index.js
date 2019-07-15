@@ -8,6 +8,23 @@ let appConfig = require('./neuroConfig');
 // Import the axios library, to make HTTP requests
 const axios = require('axios');
 
+let appCookies = null;
+
+module.exports.initAppCookies = (session)=>{
+    appCookies = session.defaultSession.cookies;
+    appCookies.get({url: 'http://localhost:8180'}, (error, cookies)=>{
+        if(error){
+            console.log('COOKIE ERROR: ', error);
+        }
+        let userIdsCookie = cookies.filter(item=>{
+            return item.name==='userIds';
+        });
+        if(userIdsCookie.length>0){
+            userIds = userIdsCookie[0].value.split(',');
+            console.log('userIds from cookies: ', userIds);
+        }
+    });
+};
 
 // Create a new express application and use
 // the express static middleware, to serve all files
@@ -60,6 +77,27 @@ app.post('/get_token', function (req, res) {
 
 app.post('/update_user_ids', function (req, res) {
     userIds = req.body.userIds;
+
+    let currDate = new Date();
+    let cookie = {url: 'http://localhost:8180', name: 'userIds', value: userIds.join(','), expirationDate: currDate.setDate(currDate.getDate()+7)};
+    appCookies.set(cookie, (error)=>{
+        if(error){
+            console.log('Cookies update Error: ', error);
+        }else{
+            console.log('Success cookies update');
+        }
+    });
+
+    appCookies.get({url: 'http://localhost:8180'}, (error, cookies)=>{
+        if(error){
+            console.log('COOKIE ERROR: ', error);
+        }
+        console.log('-----COOKIES-----: ', cookies);
+    });
+
+    clientSocket.emit("userIds", {
+        userIds: userIds
+    });
     res.send('Success update!');
 });
 
@@ -85,13 +123,13 @@ app.get('/chart_data', function(req, res) {
             data: response.data
         });
     })
-    .catch(function (error) {
-        console.log(error.message);
-        res.status(500).send({
-            error: error,
-            error_response_data: error.response.data
-        });
-    })
+        .catch(function (error) {
+            console.log(error.message);
+            res.status(500).send({
+                error: error,
+                error_response_data: error.response.data
+            });
+        })
 });
 
 // Start the server on port 8180
